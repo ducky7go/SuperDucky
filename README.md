@@ -2,6 +2,8 @@
 
 Simple gallery of the current UI and behaviors.
 
+点击链接加入群聊【逃离鸭科夫 mod 技术交流】：https://qm.qq.com/q/6kHzE1Pjk4
+
 ## Demo shots
 
 ![Screenshot 20260102 211525](assets/img/Screenshot_20260102_211525.png)
@@ -21,3 +23,4 @@ Simple gallery of the current UI and behaviors.
 ![Screenshot 20260102 211909](assets/img/Screenshot_20260102_211909.png)
 ![Screenshot 20260102 211938](assets/img/Screenshot_20260102_211938.png)
 
+点击链接加入群聊【逃离鸭科夫 mod 技术交流】：https://qm.qq.com/q/6kHzE1Pjk4
