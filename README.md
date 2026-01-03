@@ -4,6 +4,10 @@ Simple gallery of the current UI and behaviors.
 
 点击链接加入群聊【逃离鸭科夫 mod 技术交流】：https://qm.qq.com/q/6kHzE1Pjk4
 
+## 文档
+
+https://ducky7go.github.io//SuperDucky.docs/
+
 ## Demo shots
 
 ![Screenshot 20260102 211525](assets/img/Screenshot_20260102_211525.png)
