@@ -21,20 +21,16 @@ jobs:
       - name: Validate GitHub Secrets
         shell: pwsh
         run: |
-          $requiredSecrets = @(
-            'WINDOWS_STORE_TENANT_ID',
-            'WINDOWS_STORE_CLIENT_ID',
-            'WINDOWS_STORE_CLIENT_SECRET',
-            'WINDOWS_STORE_APP_ID'
-          )
+          $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
+          $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
+          $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
+          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
 
           $missingSecrets = @()
-          foreach ($secret in $requiredSecrets) {
-            $value = [System.Environment]::GetEnvironmentVariable($secret)
-            if ([string]::IsNullOrWhiteSpace($value)) {
-              $missingSecrets += $secret
-            }
-          }
+          if ([string]::IsNullOrWhiteSpace($tenantId)) { $missingSecrets += 'WINDOWS_STORE_TENANT_ID' }
+          if ([string]::IsNullOrWhiteSpace($clientId)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_ID' }
+          if ([string]::IsNullOrWhiteSpace($clientSecret)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_SECRET' }
+          if ([string]::IsNullOrWhiteSpace($appId)) { $missingSecrets += 'WINDOWS_STORE_APP_ID' }
 
           if ($missingSecrets.Count -gt 0) {
             Write-Error "Missing required GitHub Secrets: $($missingSecrets -join ', ')"
