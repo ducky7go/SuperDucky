@@ -18,6 +18,11 @@ jobs:
     if: ${{ !cancelled() }}
 
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+
       - name: Validate GitHub Secrets
         shell: pwsh
         run: |
@@ -47,7 +52,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/publish'
         shell: pwsh
         run: |
-          # Get the latest release using GitHub CLI
+          # Get the latest published (non-draft) release using GitHub CLI
           $latestRelease = gh release view --json tagName,name,body -R ${{ github.repository }} 2>$null
           if ($LASTEXITCODE -eq 0) {
             $tagName = ($latestRelease | ConvertFrom-Json).tagName
@@ -55,8 +60,8 @@ jobs:
             Write-Host "LATEST_RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
           } else {
             Write-Warning "No releases found. Searching for latest tag..."
-            # Fallback to getting the latest tag
-            $latestTag = git describe --tags --abbrev=0 2>$null
+            # Fallback to getting the latest tag by creation date
+            $latestTag = git tag --sort=-creatordate | head -n 1
             if ($latestTag) {
               Write-Host "Latest tag: $latestTag"
               Write-Host "LATEST_RELEASE_TAG=$latestTag" >> $env:GITHUB_ENV
