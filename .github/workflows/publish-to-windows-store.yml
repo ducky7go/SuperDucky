@@ -57,14 +57,14 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             $tagName = ($latestRelease | ConvertFrom-Json).tagName
             Write-Host "Latest release tag: $tagName"
-            Write-Host "LATEST_RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
+            "LATEST_RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
           } else {
             Write-Warning "No releases found. Searching for latest tag..."
             # Fallback to getting the latest tag by creation date
             $latestTag = git tag --sort=-creatordate | head -n 1
             if ($latestTag) {
               Write-Host "Latest tag: $latestTag"
-              Write-Host "LATEST_RELEASE_TAG=$latestTag" >> $env:GITHUB_ENV
+              "LATEST_RELEASE_TAG=$latestTag" >> $env:GITHUB_ENV
             } else {
               Write-Error "No releases or tags found. Cannot publish to Windows Store."
               exit 1
@@ -79,7 +79,7 @@ jobs:
         run: |
           $tag = "${{ github.event.release.tag_name }}"
           Write-Host "Release tag from event: $tag"
-          Write-Host "LATEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "LATEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
       - name: Download Release Assets
         shell: pwsh
