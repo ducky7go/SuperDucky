@@ -6,7 +6,8 @@ Simple gallery of the current UI and behaviors.
 
 ## 文档
 
-https://ducky7go.github.io//SuperDucky.docs/
+[![Documentation](https://img.shields.io/badge/docs-latest-blue)](https://ducky7go.github.io//SuperDucky.docs/)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20it%20from-0078D4?logo=windows&logoColor=white)](https://apps.microsoft.com/store/detail/9ndbtdkqbx30)
 
 ## 部署
 
