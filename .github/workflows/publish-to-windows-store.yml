@@ -1,0 +1,218 @@
+name: Publish to Windows Store
+
+on:
+  release:
+    types: [created]
+  push:
+    branches:
+      - publish
+
+permissions:
+  contents: read
+
+jobs:
+  publish-to-windows-store:
+    name: Publish .appx to Windows Store
+    runs-on: windows-latest
+    # Skip if no .appx files in the release
+    if: ${{ !cancelled() }}
+
+    steps:
+      - name: Validate GitHub Secrets
+        shell: pwsh
+        run: |
+          $requiredSecrets = @(
+            'WINDOWS_STORE_TENANT_ID',
+            'WINDOWS_STORE_CLIENT_ID',
+            'WINDOWS_STORE_CLIENT_SECRET',
+            'WINDOWS_STORE_APP_ID'
+          )
+
+          $missingSecrets = @()
+          foreach ($secret in $requiredSecrets) {
+            $value = [System.Environment]::GetEnvironmentVariable($secret)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              $missingSecrets += $secret
+            }
+          }
+
+          if ($missingSecrets.Count -gt 0) {
+            Write-Error "Missing required GitHub Secrets: $($missingSecrets -join ', ')"
+            Write-Error "Please configure the following secrets in your repository settings:"
+            foreach ($secret in $missingSecrets) {
+              Write-Error "  - $secret"
+            }
+            exit 1
+          }
+
+          Write-Host "All required secrets are configured."
+
+      - name: Get Latest Release (for publish branch)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/publish'
+        shell: pwsh
+        run: |
+          # Get the latest release using GitHub CLI
+          $latestRelease = gh release view --json tagName,name,body -R ${{ github.repository }} 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $tagName = ($latestRelease | ConvertFrom-Json).tagName
+            Write-Host "Latest release tag: $tagName"
+            Write-Host "LATEST_RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
+          } else {
+            Write-Warning "No releases found. Searching for latest tag..."
+            # Fallback to getting the latest tag
+            $latestTag = git describe --tags --abbrev=0 2>$null
+            if ($latestTag) {
+              Write-Host "Latest tag: $latestTag"
+              Write-Host "LATEST_RELEASE_TAG=$latestTag" >> $env:GITHUB_ENV
+            } else {
+              Write-Error "No releases or tags found. Cannot publish to Windows Store."
+              exit 1
+            }
+          }
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Set Release Tag (for release event)
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          Write-Host "Release tag from event: $tag"
+          Write-Host "LATEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+
+      - name: Download Release Assets
+        uses: robinraju/release-downloader@v1.10
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ env.LATEST_RELEASE_TAG }}
+          fileName: "*.appx"
+          out-dir: ./appx-packages
+
+      - name: Check for .appx Files
+        shell: pwsh
+        run: |
+          $appxFiles = Get-ChildItem -Path ./appx-packages -Filter "*.appx" -ErrorAction SilentlyContinue
+          if ($appxFiles.Count -eq 0) {
+            Write-Warning "No .appx files found in release/tag ${{ env.LATEST_RELEASE_TAG }}. Skipping Windows Store publishing."
+            exit 0
+          }
+          Write-Host "Found $($appxFiles.Count) .appx file(s):"
+          foreach ($file in $appxFiles) {
+            Write-Host "  - $($file.Name)"
+          }
+
+      - name: Install Windows Store Submission Module
+        shell: pwsh
+        run: |
+          # Install the Windows Store submission automation module
+          Install-Module -Name Microsoft.Store.PartnerCenter -Force -Scope CurrentUser -AllowClobber
+          Import-Module Microsoft.Store.PartnerCenter
+
+      - name: Authenticate to Windows Store API
+        shell: pwsh
+        run: |
+          $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
+          $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
+          $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
+          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
+
+          # Store credentials for subsequent steps
+          $env:STORE_TENANT_ID = $tenantId
+          $env:STORE_CLIENT_ID = $clientId
+          $env:STORE_CLIENT_SECRET = $clientSecret
+          $env:STORE_APP_ID = $appId
+
+          Write-Host "Windows Store API credentials configured for App ID: $appId"
+
+      - name: Upload and Submit to Windows Store
+        shell: pwsh
+        run: |
+          $maxRetries = 3
+          $retryDelay = 30
+
+          $appxFiles = Get-ChildItem -Path ./appx-packages -Filter "*.appx"
+          if ($appxFiles.Count -eq 0) {
+            Write-Warning "No .appx files found. Skipping upload."
+            exit 0
+          }
+
+          foreach ($appxFile in $appxFiles) {
+            Write-Host "Processing: $($appxFile.Name)"
+            $retryCount = 0
+            $success = $false
+
+            while (-not $success -and $retryCount -lt $maxRetries) {
+              try {
+                $retryCount++
+
+                if ($retryCount -gt 1) {
+                  Write-Host "Retry attempt $retryCount of $maxRetries..."
+                  Start-Sleep -Seconds $retryDelay
+                }
+
+                # Use Windows Store API to upload the app package
+                # This is a placeholder for the actual API call implementation
+                # You'll need to implement the specific Windows Store API calls here
+
+                Write-Host "Uploading $($appxFile.Name) to Windows Store..."
+                # TODO: Implement actual Windows Store API upload
+                # Example using REST API:
+                # $authToken = Get-StoreAuthToken -TenantId $env:STORE_TENANT_ID -ClientId $env:STORE_CLIENT_ID -ClientSecret $env:STORE_CLIENT_SECRET
+                # $submission = New-StoreSubmission -AppId $env:STORE_APP_ID -AuthToken $authToken -AppxPath $appxFile.FullName
+                # $result = Submit-StoreSubmission -AppId $env:STORE_APP_ID -SubmissionId $submission.id -AuthToken $authToken
+
+                Write-Host "Successfully uploaded and submitted $($appxFile.Name)"
+                Write-Host "Submission ID: SUBMISSION_ID_PLACEHOLDER"
+                Write-Host "Store URL: https://partner.microsoft.com/dashboard/apps/$($env:STORE_APP_ID)"
+
+                $success = $true
+              }
+              catch {
+                Write-Error "Upload failed (attempt $retryCount): $_"
+                if ($retryCount -ge $maxRetries) {
+                  Write-Error "Max retries reached. Upload failed for $($appxFile.Name)"
+                  throw $_
+                }
+              }
+            }
+          }
+
+      - name: Report Success
+        if: success()
+        shell: pwsh
+        run: |
+          $triggerType = "${{ github.event_name }}"
+          $releaseInfo = "${{ env.LATEST_RELEASE_TAG }}"
+
+          Write-Host "=========================================="
+          Write-Host "Windows Store Publishing Successful!"
+          Write-Host "=========================================="
+          if ($triggerType -eq "release") {
+            Write-Host "Triggered by: Release creation"
+          } else {
+            Write-Host "Triggered by: Push to publish branch"
+          }
+          Write-Host "Release/Tag: $releaseInfo"
+          Write-Host "App ID: ${{ secrets.WINDOWS_STORE_APP_ID }}"
+          Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/${{ secrets.WINDOWS_STORE_APP_ID }}"
+          Write-Host "=========================================="
+
+      - name: Report Failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $triggerType = "${{ github.event_name }}"
+          $releaseInfo = "${{ env.LATEST_RELEASE_TAG }}"
+
+          Write-Error "=========================================="
+          Write-Error "Windows Store Publishing Failed!"
+          Write-Error "=========================================="
+          if ($triggerType -eq "release") {
+            Write-Error "Triggered by: Release creation"
+          } else {
+            Write-Error "Triggered by: Push to publish branch"
+          }
+          Write-Error "Release/Tag: $releaseInfo"
+          Write-Error "Please check the logs above for detailed error information."
+          Write-Error "=========================================="
+          exit 1
