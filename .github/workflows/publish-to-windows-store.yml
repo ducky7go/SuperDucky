@@ -84,7 +84,7 @@ jobs:
       - name: Download Release Assets
         shell: pwsh
         run: |
-          $tag = "${{ env.LATEST_RELEASE_TAG }}"
+          $tag = $env:LATEST_RELEASE_TAG
           if ([string]::IsNullOrWhiteSpace($tag)) {
             Write-Error "LATEST_RELEASE_TAG is not set. Cannot download assets."
             exit 1
@@ -109,7 +109,8 @@ jobs:
         run: |
           $appxFiles = Get-ChildItem -Path ./appx-packages -Filter "*.appx" -ErrorAction SilentlyContinue
           if ($appxFiles.Count -eq 0) {
-            Write-Warning "No .appx files found in release/tag ${{ env.LATEST_RELEASE_TAG }}. Skipping Windows Store publishing."
+            $tag = $env:LATEST_RELEASE_TAG
+            Write-Warning "No .appx files found in release/tag $tag. Skipping Windows Store publishing."
             exit 0
           }
           Write-Host "Found $($appxFiles.Count) .appx file(s):"
@@ -198,7 +199,7 @@ jobs:
         shell: pwsh
         run: |
           $triggerType = "${{ github.event_name }}"
-          $releaseInfo = "${{ env.LATEST_RELEASE_TAG }}"
+          $releaseInfo = $env:LATEST_RELEASE_TAG
 
           Write-Host "=========================================="
           Write-Host "Windows Store Publishing Successful!"
@@ -218,7 +219,7 @@ jobs:
         shell: pwsh
         run: |
           $triggerType = "${{ github.event_name }}"
-          $releaseInfo = "${{ env.LATEST_RELEASE_TAG }}"
+          $releaseInfo = $env:LATEST_RELEASE_TAG
 
           Write-Error "=========================================="
           Write-Error "Windows Store Publishing Failed!"
