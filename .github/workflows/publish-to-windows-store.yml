@@ -82,12 +82,27 @@ jobs:
           Write-Host "LATEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
       - name: Download Release Assets
-        uses: robinraju/release-downloader@v1.10
-        with:
-          repository: ${{ github.repository }}
-          tag: ${{ env.LATEST_RELEASE_TAG }}
-          fileName: "*.appx"
-          out-dir: ./appx-packages
+        shell: pwsh
+        run: |
+          $tag = "${{ env.LATEST_RELEASE_TAG }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            Write-Error "LATEST_RELEASE_TAG is not set. Cannot download assets."
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path ./appx-packages | Out-Null
+
+          # Download release assets using GitHub CLI
+          gh release download "$tag" --dir ./appx-packages --pattern "*.appx" --repo ${{ github.repository }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to download .appx files from release $tag"
+            exit 1
+          }
+
+          $appxFiles = Get-ChildItem -Path ./appx-packages -Filter "*.appx"
+          Write-Host "Downloaded $($appxFiles.Count) .appx file(s)"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Check for .appx Files
         shell: pwsh
