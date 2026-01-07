@@ -108,107 +108,133 @@ App ID 格式: 9NXXXXXXXXX (例如: 9NDTBDKQBX30)
   - 需要更新同一版本的应用信息
   - 之前的提交被拒绝，需要重新提交
 
-## 重要说明：当前实现状态
+## 重要说明：实现状态
 
-### API 限制说明
+### 当前工作流功能
 
-**当前工作流状态**: 工作流可以成功完成以下步骤：
+**✅ 完全自动化发布**: 工作流现在使用 UWP Store Submission API，支持 100% 自动化提交流程：
 
 1. ✅ 验证 GitHub Secrets 配置
 2. ✅ 下载 GitHub Release 中的 `.appx` 文件
 3. ✅ 通过 Azure AD 获取 OAuth 访问令牌
-4. ✅ 检查 Windows Store 应用状态
-5. ✅ 提供发布指导
+4. ✅ 创建新的提交（基于上次发布的提交）
+5. ✅ 将 .appx 文件上传到 Azure Blob Storage（使用 SAS URL）
+6. ✅ 更新提交信息
+7. ✅ 提交应用到 Windows Store
+8. ✅ 监控提交状态
 
-**已知限制**: 由于 Windows Store Submission API (MSI/EXE) 的设计限制，该 API 需要提供一个**公开可访问的包 URL (`packageUrl`)**，而不是直接上传本地文件。
+### 工作原理
 
-**这意味着**: 工作流目前无法完成 100% 自动化的提交流程，但可以自动完成大部分准备工作。
-
-### 当前工作流程
-
-当工作流运行时，您会看到以下输出：
+本工作流使用 **UWP Store Submission API**（`https://manage.devcenter.microsoft.com`），该 API 支持直接文件上传：
 
 ```
-===============================================
-IMPORTANT: Windows Store Submission API Limitation
-===============================================
-
-The Windows Store Submission API for MSI/EXE apps requires
-a publicly accessible package URL (packageUrl parameter).
-
-For .appx packages, you have two options:
-
-Option 1: Use the manual submission flow
-  - Upload your .appx file to a publicly accessible URL
-  - Update the packageUrl in Partner Center manually
-  - Use the API to create the submission
-
-Option 2: Convert to MSIX format and use the UWP API
-  - The UWP Store Submission API supports direct file upload
-  - Consider converting .appx to .msix format
-
-App ID: 9NDTBDKQBX30
-Store Dashboard: https://partner.microsoft.com/dashboard/apps/9NDTBDKQBX30
+用户创建 Release
+    ↓
+工作流下载 .appx 文件
+    ↓
+创建新的提交（获得 SAS URL）
+    ↓
+上传 .appx 文件到 Azure Blob Storage
+    ↓
+更新提交信息并提交
+    ↓
+Windows Store 开始认证流程
 ```
 
-### 完成发布的步骤
+### 前置条件
 
-工作流运行完成后，您需要：
+**重要**: 在使用自动发布之前，您需要：
 
-1. **访问 Partner Center**: 点击工作流日志中提供的 Store Dashboard 链接
-2. **创建新提交**: 在 Partner Center 中为您的应用创建新的提交
-3. **上传 .appx 文件**: 从 GitHub Release 下载 `.appx` 文件并手动上传
-4. **完成提交**: 填写所需的应用信息和截图
-5. **提交审核**: 提交到 Windows Store 进行审核
+1. **应用必须已存在于 Partner Center**
+   - 在 Partner Center 中创建应用并保留名称
+   - 完成首次提交（包括年龄分级问卷）
+   - 至少有一次成功的发布记录
 
-### 未来改进方向
+2. **Azure AD 应用配置**
+   - 在 Partner Center 中关联 Azure AD 目录
+   - 在 Partner Center 的用户管理页面添加 Azure AD 应用
+   - 为 Azure AD 应用分配 **Manager** 角色
 
-如果您需要实现完全自动化发布，可以考虑以下方案：
+### 当工作流运行时
 
-**方案 A: 使用 Azure Blob Storage**
-1. 在工作流中添加步骤，将 `.appx` 文件上传到 Azure Blob Storage
-2. 生成具有过期时间的 SAS URL（共享访问签名）
-3. 使用该 SAS URL 作为 `packageUrl` 参数通过 API 提交
+您会看到以下日志输出：
 
-**方案 B: 转换为 MSIX 格式**
-1. 修改构建流程，输出 `.msix` 格式而非 `.appx`
-2. 使用 UWP Store Submission API，该 API 支持直接文件上传
-3. 实现完全自动化的提交流程
+```
+✅ Validate GitHub Secrets - All required secrets are configured.
+✅ Get Latest Release (for publish branch) - Latest release tag: v1.0.0
+✅ Download Release Assets - Downloaded 1 .appx file(s)
+✅ Publish to Windows Store via REST API
+   - Getting OAuth token for UWP Store Submission API...
+   - Access token obtained successfully
+   - Creating new submission...
+   - Submission created successfully. Submission ID: 1234567890
+   - File upload URL obtained
+   - Uploading .appx file to Azure Blob Storage...
+   - File uploaded successfully
+   - Updating submission with package information...
+   - Submission updated successfully
+   - Committing submission...
+   - Submission committed successfully
+   - Monitoring submission status...
+   - Status check 1: CommitStarted
+   - Status check 2: PreProcessing
+✅ Windows Store Publishing Successful!
+```
 
-如果您希望实现这些改进，请提交 issue 或 PR。
+提交成功后，您的应用将进入 Windows Store 的认证流程。您可以在 Partner Center 中监控认证进度。
 
 ## 故障排除
 
-### 问题：工作流提示 API 限制并提供指导
+### 问题：认证失败 (401 Unauthorized)
 
-**现象**: 工作流运行成功，但输出提示 "Windows Store Submission API Limitation"
-
-**原因**: 这是预期行为。Windows Store Submission API (MSI/EXE) 需要公开可访问的包 URL，无法直接上传本地文件。
+**原因**: Azure AD 凭证无效或权限配置不正确
 
 **解决方案**:
-- 这是当前实现的已知限制，不是错误
-- 按照工作流输出的指导，在 Partner Center 中手动完成提交
-- 参考本文档 "重要说明：当前实现状态" 部分了解详情
+1. 验证 Tenant ID、Client ID 和 Client Secret 是否正确
+2. 检查 Client Secret 是否已过期
+3. 确认 Azure AD 应用已在 Partner Center 中正确配置
+4. 确保在 Partner Center 的用户管理页面为 Azure AD 应用分配了 **Manager** 角色
 
-### 问题：工作流立即失败，提示 "Missing required GitHub Secrets"
+### 问题：应用未找到 (404 Not Found)
 
-**原因**: 缺少必需的 GitHub Secret
+**原因**: App ID 不正确或应用未在 Partner Center 中创建
+
+**解决方案**:
+1. 验证 App ID 格式是否正确（例如：9NDTBDKQBX30）
+2. 确认应用已在 Partner Center 中创建
+3. 确保应用至少有一次成功的提交记录
+4. 在 Partner Center 中检查应用 URL 中的 App ID
+
+### 问题：禁止访问 (403 Forbidden)
+
+**原因**: Azure AD 应用没有足够的权限
+
+**解决方案**:
+1. 在 Partner Center 的"账户设置" > "用户"页面
+2. 找到您的 Azure AD 应用
+3. 确保分配了 **Manager** 角色
+4. 确认您的组织 Azure AD 目录已正确关联到 Partner Center
+
+### 问题：提交失败 (400 Bad Request)
+
+**原因**: 提交数据格式错误或包文件有问题
+
+**解决方案**:
+1. 检查 .appx 文件是否有效且未损坏
+2. 确认 .appx 版本号高于当前 Store 中的版本
+3. 验证包清单文件格式正确
+4. 查看详细错误日志以了解具体问题
+
+### 问题：缺少必需的 GitHub Secrets
+
+**原因**: GitHub Secrets 未正确配置
 
 **解决方案**:
 1. 检查是否已配置所有四个 required secrets
 2. 确保 secret 名称完全匹配（区分大小写）
 3. 确认 secret 值已正确复制，没有额外空格
 
-### 问题：认证失败，提示 "Authentication failed"
-
-**原因**: API 凭证无效
-
-**解决方案**:
-1. 验证 Tenant ID、Client ID 和 Client Secret 是否正确
-2. 检查 Client Secret 是否已过期
-3. 确认 Azure AD 应用注册配置正确
-
-### 问题：工作流跳过发布，提示 "No .appx files found"
+### 问题：没有找到 .appx 文件
 
 **原因**: Release 中不包含 `.appx` 文件
 

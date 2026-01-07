@@ -150,13 +150,13 @@ jobs:
                 Start-Sleep -Seconds $retryDelay
               }
 
-              # Step 1: Get OAuth token
-              Write-Host "Getting OAuth token..."
+              # Step 1: Get OAuth token for UWP Store Submission API
+              Write-Host "Getting OAuth token for UWP Store Submission API..."
               $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
               $tokenBody = @{
                 client_id = $clientId
                 client_secret = $clientSecret
-                scope = "https://api.store.microsoft.com/.default"
+                scope = "https://manage.devcenter.microsoft.com/.default"
                 grant_type = "client_credentials"
               }
 
@@ -168,48 +168,105 @@ jobs:
               }
               Write-Host "Access token obtained successfully"
 
-              # Step 2: Validate credentials by attempting a minimal API call
-              # Note: We're not using X-Seller-Account-Id since we'll provide manual guidance
-              Write-Host "Validating API credentials..."
-              $baseUrl = "https://api.store.microsoft.com/submission/v1"
+              # Step 2: Create a new submission (this creates a draft based on last published submission)
+              Write-Host "Creating new submission..."
+              $baseUrl = "https://manage.devcenter.microsoft.com/v1.0/my"
+              $headers = @{
+                "Authorization" = "Bearer $accessToken"
+                "Content-Type" = "application/json"
+              }
 
-              # The Windows Store Submission API for MSI/EXE requires:
-              # 1. X-Seller-Account-Id header (seller ID from Partner Center)
-              # 2. A publicly accessible packageUrl parameter
-              # 3. Different authentication setup than standard UWP apps
+              $createSubmissionUrl = "$baseUrl/applications/$appId/submissions"
+              $submissionResponse = Invoke-RestMethod -Uri $createSubmissionUrl -Method Post -Headers $headers
+              $submissionId = $submissionResponse.id
+              $fileUploadUrl = $submissionResponse.fileUploadUrl
 
-              # Since we cannot complete the full submission without these requirements,
-              # we'll validate credentials and provide guidance instead
+              Write-Host "Submission created successfully. Submission ID: $submissionId"
+              Write-Host "File upload URL obtained: $fileUploadUrl"
 
-              Write-Warning "==============================================="
-              Write-Warning "IMPORTANT: Windows Store Submission API Limitation"
-              Write-Warning "==============================================="
-              Write-Host ""
-              Write-Host "The Windows Store Submission API for MSI/EXE apps requires"
-              Write-Host "a publicly accessible package URL (packageUrl parameter)."
-              Write-Host ""
-              Write-Host "For .appx packages, you have two options:"
-              Write-Host ""
-              Write-Host "Option 1: Use the manual submission flow"
-              Write-Host "  - Upload your .appx file to a publicly accessible URL"
-              Write-Host "  - Update the packageUrl in Partner Center manually"
-              Write-Host "  - Use the API to create the submission"
-              Write-Host ""
-              Write-Host "Option 2: Convert to MSIX format and use the UWP API"
-              Write-Host "  - The UWP Store Submission API supports direct file upload"
-              Write-Host "  - Consider converting .appx to .msix format"
-              Write-Host ""
-              Write-Host "App ID: $appId"
-              Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/$appId"
-              Write-Host ""
-              Write-Host "For now, this workflow will provide guidance rather than"
-              Write-Host "performing the actual API submission, as the MSI/EXE API"
-              Write-Host "does not support direct .appx file uploads."
-              Write-Host ""
-              Write-Host "==============================================="
+              # Step 3: Upload the .appx file to Azure Blob Storage using the SAS URL
+              Write-Host "Uploading .appx file to Azure Blob Storage..."
 
-              # Since we cannot complete the submission via API with the current approach,
-              # we'll exit successfully with guidance
+              # Create a ZIP archive containing the .appx file
+              $zipFile = "./submission.zip"
+              Compress-Archive -Path "./appx-packages/*.appx" -DestinationPath $zipFile -Force
+
+              # Upload the ZIP file using Azure Blob Storage REST API
+              $blobHeaders = @{
+                "x-ms-blob-type" = "BlockBlob"
+              }
+
+              Invoke-RestMethod -Uri $fileUploadUrl -Method Put -Headers $blobHeaders -InFile $zipFile -ContentType "application/octet-stream"
+              Write-Host "File uploaded successfully"
+
+              # Step 4: Update the submission with the new package information
+              Write-Host "Updating submission with package information..."
+
+              # Get the current submission data
+              $getSubmissionUrl = "$baseUrl/applications/$appId/submissions/$submissionId"
+              $currentSubmission = Invoke-RestMethod -Uri $getSubmissionUrl -Method Get -Headers $headers
+
+              # Update the package file reference
+              # The submission already has the package info from the cloned submission
+              # We just need to update the fileStatus to indicate the file has been uploaded
+              foreach ($package in $currentSubmission.applicationPackages) {
+                $package.fileStatus = "Uploaded"
+              }
+
+              # Update the submission
+              $updateSubmissionUrl = "$baseUrl/applications/$appId/submissions/$submissionId"
+              $submissionJson = $currentSubmission | ConvertTo-Json -Depth 20
+              Invoke-RestMethod -Uri $updateSubmissionUrl -Method Put -Headers $headers -Body $submissionJson
+              Write-Host "Submission updated successfully"
+
+              # Step 5: Commit the submission
+              Write-Host "Committing submission..."
+              $commitUrl = "$baseUrl/applications/$appId/submissions/$submissionId/commit"
+              Invoke-RestMethod -Uri $commitUrl -Method Post -Headers $headers
+              Write-Host "Submission committed successfully"
+
+              # Step 6: Monitor submission status
+              Write-Host "Monitoring submission status..."
+              $statusUrl = "$baseUrl/applications/$appId/submissions/$submissionId/status"
+
+              $pollCount = 0
+              $maxPolls = 60
+              $pollInterval = 10
+
+              while ($pollCount -lt $maxPolls) {
+                $pollCount++
+                Start-Sleep -Seconds $pollInterval
+
+                $statusResponse = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
+                $status = $statusResponse.status
+                Write-Host "Status check ${pollCount}: $status"
+
+                if ($status -eq "CommitStarted" -or $status -eq "PendingCommit") {
+                  continue
+                }
+
+                if ($status -eq "PreProcessing" -or $status -eq "PendingPublication") {
+                  Write-Host "Submission is being processed..."
+                  break
+                }
+
+                if ($status -eq "CommitFailed") {
+                  throw "Commit failed: $($statusResponse.statusDetails | ConvertTo-Json)"
+                }
+
+                if ($status -eq "PreProcessingFailed") {
+                  throw "Pre-processing failed: $($statusResponse.statusDetails | ConvertTo-Json)"
+                }
+              }
+
+              Write-Host "=========================================="
+              Write-Host "Windows Store Publishing Successful!"
+              Write-Host "=========================================="
+              Write-Host "Submission ID: $submissionId"
+              Write-Host "Current Status: $status"
+              Write-Host "Partner Center: https://partner.microsoft.com/dashboard/apps/$appId"
+              Write-Host "=========================================="
+
               $success = $true
 
             }
@@ -240,17 +297,19 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "Windows Store Publishing - Guidance"
+          Write-Host "Windows Store Publishing Complete!"
           Write-Host "=========================================="
           Write-Host ""
-          Write-Host "Note: Due to API limitations, automatic submission"
-          Write-Host "of .appx files is not fully supported."
+          Write-Host "Your .appx package has been successfully"
+          Write-Host "submitted to the Windows Store."
           Write-Host ""
           Write-Host "Next Steps:"
-          Write-Host "1. Visit Partner Center: https://partner.microsoft.com/dashboard"
-          Write-Host "2. Navigate to your app: ${{ secrets.WINDOWS_STORE_APP_ID }}"
-          Write-Host "3. Create a new submission"
-          Write-Host "4. Upload your .appx file manually"
+          Write-Host "1. Visit Partner Center to monitor submission status"
+          Write-Host "2. Wait for certification to complete"
+          Write-Host "3. Once approved, your app will be published"
+          Write-Host ""
+          Write-Host "Partner Center Dashboard:"
+          Write-Host "https://partner.microsoft.com/dashboard/apps/${{ secrets.WINDOWS_STORE_APP_ID }}"
           Write-Host "=========================================="
 
       - name: Report Failure
@@ -262,15 +321,33 @@ jobs:
           Write-Error "=========================================="
           Write-Error "Please check the logs above for detailed error information."
           Write-Error ""
-          Write-Error "Common issues:"
-          Write-Error "1. Tenant ID, Client ID, or Client Secret are incorrect"
-          Write-Error "2. App ID must be in format 9NXXXXXXXXX (e.g., 9NDTBDKQBX30)"
-          Write-Error "3. Azure AD application needs API permissions"
-          Write-Error "4. The app may need to be registered in Partner Center first"
+          Write-Error "Common issues and solutions:"
           Write-Error ""
-          Write-Error "To manually publish:"
-          Write-Error "- Visit https://partner.microsoft.com/dashboard"
-          Write-Error "- Find your app and create a new submission"
-          Write-Error "- Upload the .appx file from the release"
+          Write-Error "1. Authentication failed (401)"
+          Write-Error "   - Verify Tenant ID, Client ID, and Client Secret"
+          Write-Error "   - Check that Client Secret has not expired"
+          Write-Error "   - Ensure Azure AD app is configured correctly"
+          Write-Error ""
+          Write-Error "2. App not found (404)"
+          Write-Error "   - Verify App ID is correct (format: 9NXXXXXXXXX)"
+          Write-Error "   - Ensure app exists in Partner Center"
+          Write-Error "   - App must have at least one previous submission"
+          Write-Error ""
+          Write-Error "3. Forbidden (403)"
+          Write-Error "   - Ensure Azure AD app has Manager role in Partner Center"
+          Write-Error "   - Check that your organization's Azure AD is properly linked"
+          Write-Error ""
+          Write-Error "4. Bad Request (400)"
+          Write-Error "   - Check submission data format"
+          Write-Error "   - Ensure .appx file is valid"
+          Write-Error "   - Verify all required fields are present"
+          Write-Error ""
+          Write-Error "5. Package upload failed"
+          Write-Error "   - Check .appx file size (max 25GB)"
+          Write-Error "   - Ensure .appx file is not corrupted"
+          Write-Error "   - Verify .appx version is higher than current version"
+          Write-Error ""
+          Write-Error "For troubleshooting guide:"
+          Write-Error "https://partner.microsoft.com/dashboard/help"
           Write-Error "=========================================="
           exit 1

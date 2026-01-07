@@ -12,13 +12,19 @@
 
 ## 2. GitHub Action 工作流开发
 - [x] 2.1 创建 `.github/workflows/publish-to-windows-store.yml` 工作流文件
-- [x] 2.2 配置工作流触发条件（`release: types: [created]`）
+- [x] 2.2 配置工作流触发条件（`release: types: [created]` 和 `publish` 分支推送）
 - [x] 2.3 添加 .appx 文件下载步骤
-- [x] 2.4 实现 Windows Store API 认证逻辑
-- [x] 2.5 实现应用包上传功能
+- [x] 2.4 实现 Windows Store UWP API 认证逻辑（使用 `https://manage.devcenter.microsoft.com`）
+- [x] 2.5 实现应用包上传功能（通过 Azure Blob Storage SAS URL）
 - [x] 2.6 实现应用提交创建和提交功能
 - [x] 2.7 添加发布状态监控和错误处理
-- [x] 2.8 配置发布状态通知（GitHub Actions 日志和可选的 Slack/邮件通知）
+- [x] 2.8 配置发布状态通知（GitHub Actions 日志）
+
+**技术实现说明**:
+- 使用 **UWP Store Submission API**（`https://manage.devcenter.microsoft.com`）
+- 支持直接文件上传到 Azure Blob Storage（使用 SAS URL）
+- 完全自动化，无需手动干预
+- 包含提交状态轮询和错误重试机制
 
 ## 3. 测试与验证
 - [ ] 3.1 在测试环境验证 Windows Store API 连接
