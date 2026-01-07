@@ -179,7 +179,7 @@ jobs:
               # Publish using msstore CLI with the .appx file
               Write-Host "Starting publish operation..."
               $output = msstore publish "." `
-                --inputFile "$($appxFile.FullName)" `
+                --inputDirectory "./appx-packages" `
                 --appId "$appId" `
                 2>&1
               Write-Host $output
