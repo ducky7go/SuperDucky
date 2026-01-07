@@ -30,12 +30,14 @@ jobs:
           $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
           $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
           $sellerId = "${{ secrets.WINDOWS_STORE_SELLER_ID }}"
+          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
 
           $missingSecrets = @()
           if ([string]::IsNullOrWhiteSpace($tenantId)) { $missingSecrets += 'WINDOWS_STORE_TENANT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientId)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientSecret)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_SECRET' }
           if ([string]::IsNullOrWhiteSpace($sellerId)) { $missingSecrets += 'WINDOWS_STORE_SELLER_ID' }
+          if ([string]::IsNullOrWhiteSpace($appId)) { $missingSecrets += 'WINDOWS_STORE_APP_ID' }
 
           if ($missingSecrets.Count -gt 0) {
             Write-Error "Missing required GitHub Secrets: $($missingSecrets -join ', ')"
@@ -130,27 +132,7 @@ jobs:
           # Install msstore CLI using winget
           winget install "Microsoft Store Developer CLI" --accept-source-agreements --accept-package-agreements
 
-      - name: Configure Microsoft Store Developer CLI
-        shell: pwsh
-        run: |
-          # Configure msstore CLI with credentials from secrets
-          msstore reconfigure `
-            --tenantId "${{ secrets.WINDOWS_STORE_TENANT_ID }}" `
-            --sellerId "${{ secrets.WINDOWS_STORE_SELLER_ID }}" `
-            --clientId "${{ secrets.WINDOWS_STORE_CLIENT_ID }}" `
-            --clientSecret "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
-
-          Write-Host "Microsoft Store Developer CLI configured successfully"
-
-      - name: Verify Configuration
-        shell: pwsh
-        run: |
-          # Verify the configuration by getting app info
-          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
-          Write-Host "Verifying configuration for App ID: $appId"
-          msstore apps get $appId
-
-      - name: Publish to Windows Store
+      - name: Configure and Publish to Windows Store
         shell: pwsh
         run: |
           $maxRetries = 3
@@ -164,7 +146,9 @@ jobs:
 
           # Use the first .appx file (assuming one package per release)
           $appxFile = $appxFiles[0]
+          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
           Write-Host "Publishing $($appxFile.Name) to Windows Store..."
+          Write-Host "App ID: $appId"
 
           $retryCount = 0
           $success = $false
@@ -178,17 +162,36 @@ jobs:
                 Start-Sleep -Seconds $retryDelay
               }
 
-              # Publish using msstore CLI
-              # The --inputFile parameter specifies the .appx file to publish
-              msstore publish "." `
+              # Configure msstore CLI with credentials from secrets
+              Write-Host "Configuring Microsoft Store Developer CLI..."
+              msstore reconfigure `
+                --tenantId "${{ secrets.WINDOWS_STORE_TENANT_ID }}" `
+                --sellerId "${{ secrets.WINDOWS_STORE_SELLER_ID }}" `
+                --clientId "${{ secrets.WINDOWS_STORE_CLIENT_ID }}" `
+                --clientSecret "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}" `
+                2>&1 | Write-Host
+
+              # Check if configuration was successful
+              if ($LASTEXITCODE -ne 0) {
+                throw "msstore reconfigure failed with exit code $LASTEXITCODE"
+              }
+
+              # Publish using msstore CLI with the .appx file
+              Write-Host "Starting publish operation..."
+              $output = msstore publish "." `
                 --inputFile "$($appxFile.FullName)" `
-                --appId "${{ secrets.WINDOWS_STORE_APP_ID }}"
+                --appId "$appId" `
+                2>&1
+              Write-Host $output
 
-              Write-Host "Successfully published $($appxFile.Name) to Windows Store"
-              Write-Host "App ID: ${{ secrets.WINDOWS_STORE_APP_ID }}"
-              Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/${{ secrets.WINDOWS_STORE_APP_ID }}"
-
-              $success = $true
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully published $($appxFile.Name) to Windows Store"
+                Write-Host "App ID: $appId"
+                Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/$appId"
+                $success = $true
+              } else {
+                throw "msstore publish failed with exit code $LASTEXITCODE"
+              }
             }
             catch {
               Write-Error "Publish failed (attempt $retryCount): $_"
@@ -236,5 +239,10 @@ jobs:
           }
           Write-Error "Release/Tag: $releaseInfo"
           Write-Error "Please check the logs above for detailed error information."
+          Write-Error ""
+          Write-Error "Common issues:"
+          Write-Error "1. Seller ID must be a pure number (e.g., 123456789), not a UUID"
+          Write-Error "2. App ID must be in format 9NXXXXXXXXX (e.g., 9NDTBDKQBX30)"
+          Write-Error "3. Verify all credentials in GitHub Secrets are correct"
           Write-Error "=========================================="
           exit 1

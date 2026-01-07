@@ -210,6 +210,36 @@ No releases or tags found. Cannot publish to Windows Store.
    - 确保至少有一个 Release 或 Tag 存在
    - 确认该 Release/Tag 包含 `.appx` 文件
 
+### 8. Seller ID format error (FormatException)
+
+**错误示例**:
+```
+System.FormatException: The input string '***' was not in a correct format.
+   at System.Number.ThrowFormatException[TChar](ReadOnlySpan`1 value)
+   at MSStore.CLI.Services.CLIConfigurator.RetrieveSellerId(...)
+```
+
+**可能原因**:
+- Seller ID 格式不正确
+- msstore CLI 期望 Seller ID 是纯数字格式
+- 你可能使用了 UUID 格式的 ID
+
+**解决步骤**:
+1. **验证 Seller ID 格式**:
+   - Seller ID 必须是纯数字（例如: `123456789`）
+   - ❌ 错误: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+   - ✅ 正确: `123456789`
+
+2. **重新获取 Seller ID**:
+   - 登录 [Partner Center](https://partner.microsoft.com/dashboard)
+   - 点击右上角账户图标 > "Account settings"
+   - 查找 "Seller ID" 字段
+   - 确保复制的是 **十进制数字**，不是 UUID
+
+3. **更新 GitHub Secret**:
+   - 在 GitHub Repository Settings 中更新 `WINDOWS_STORE_SELLER_ID`
+   - 使用正确的纯数字格式
+
 ## 日志分析
 
 ### 成功发布的日志特征

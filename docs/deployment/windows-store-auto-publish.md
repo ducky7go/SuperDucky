@@ -50,17 +50,29 @@ Client Secret 格式: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 #### 1.4 获取应用 ID (App ID) 和 Seller ID
 
+**获取 App ID**:
 1. 登录 [Partner Center](https://partner.microsoft.com/dashboard)
 2. 导航到 "Apps" 或 "应用"
 3. 选择你的应用
 4. 在 "App identity" 或 "应用标识" 部分，复制 "App ID"
-5. 在 Partner Center 右上角点击账户图标（齿轮设置），查看 "Account settings" 或"账户设置"
-6. 在 "Developer info" 或"开发者信息"部分，复制 "Seller ID"
 
 ```
-App ID 格式: 9NXXXXXXXXX
-Seller ID 格式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+App ID 格式: 9NXXXXXXXXX (例如: 9NDTBDKQBX30)
 ```
+
+**获取 Seller ID**:
+1. 在 Partner Center 中，点击右上角的账户图标或头像
+2. 选择 "Account settings" 或"账户设置"
+3. 在 "Account details" 或"账户详情"页面找到 "Seller ID"
+4. **重要**: Seller ID 是一个 **十进制数字**，不是 UUID！
+
+```
+Seller ID 格式: 纯数字 (例如: 123456789)
+❌ 错误: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+✅ 正确: 123456789
+```
+
+**提示**: 如果你在页面上看到 UUID 格式的 ID，请继续查找。Seller ID 通常显示在 "Seller ID"、"发布者 ID" 或 "Publisher ID" 字段中，格式为纯数字。
 
 #### 1.5 配置 API 权限
 
