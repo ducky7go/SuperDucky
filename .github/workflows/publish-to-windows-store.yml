@@ -29,13 +29,13 @@ jobs:
           $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
           $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
           $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
-          $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
+          $sellerId = "${{ secrets.WINDOWS_STORE_SELLER_ID }}"
 
           $missingSecrets = @()
           if ([string]::IsNullOrWhiteSpace($tenantId)) { $missingSecrets += 'WINDOWS_STORE_TENANT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientId)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientSecret)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_SECRET' }
-          if ([string]::IsNullOrWhiteSpace($appId)) { $missingSecrets += 'WINDOWS_STORE_APP_ID' }
+          if ([string]::IsNullOrWhiteSpace($sellerId)) { $missingSecrets += 'WINDOWS_STORE_SELLER_ID' }
 
           if ($missingSecrets.Count -gt 0) {
             Write-Error "Missing required GitHub Secrets: $($missingSecrets -join ', ')"
@@ -118,30 +118,39 @@ jobs:
             Write-Host "  - $($file.Name)"
           }
 
-      - name: Install Windows Store Submission Module
+      - name: Install .NET 8 Desktop Runtime
         shell: pwsh
         run: |
-          # Install the Windows Store submission automation module
-          Install-Module -Name Microsoft.Store.PartnerCenter -Force -Scope CurrentUser -AllowClobber
-          Import-Module Microsoft.Store.PartnerCenter
+          # Install .NET 8 Desktop Runtime (required for msstore CLI)
+          winget install Microsoft.DotNet.DesktopRuntime.8 --accept-source-agreements --accept-package-agreements
 
-      - name: Authenticate to Windows Store API
+      - name: Install Microsoft Store Developer CLI
         shell: pwsh
         run: |
-          $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
-          $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
-          $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
+          # Install msstore CLI using winget
+          winget install "Microsoft Store Developer CLI" --accept-source-agreements --accept-package-agreements
+
+      - name: Configure Microsoft Store Developer CLI
+        shell: pwsh
+        run: |
+          # Configure msstore CLI with credentials from secrets
+          msstore reconfigure `
+            --tenantId "${{ secrets.WINDOWS_STORE_TENANT_ID }}" `
+            --sellerId "${{ secrets.WINDOWS_STORE_SELLER_ID }}" `
+            --clientId "${{ secrets.WINDOWS_STORE_CLIENT_ID }}" `
+            --clientSecret "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
+
+          Write-Host "Microsoft Store Developer CLI configured successfully"
+
+      - name: Verify Configuration
+        shell: pwsh
+        run: |
+          # Verify the configuration by getting app info
           $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
+          Write-Host "Verifying configuration for App ID: $appId"
+          msstore apps get $appId
 
-          # Store credentials for subsequent steps
-          $env:STORE_TENANT_ID = $tenantId
-          $env:STORE_CLIENT_ID = $clientId
-          $env:STORE_CLIENT_SECRET = $clientSecret
-          $env:STORE_APP_ID = $appId
-
-          Write-Host "Windows Store API credentials configured for App ID: $appId"
-
-      - name: Upload and Submit to Windows Store
+      - name: Publish to Windows Store
         shell: pwsh
         run: |
           $maxRetries = 3
@@ -153,43 +162,39 @@ jobs:
             exit 0
           }
 
-          foreach ($appxFile in $appxFiles) {
-            Write-Host "Processing: $($appxFile.Name)"
-            $retryCount = 0
-            $success = $false
+          # Use the first .appx file (assuming one package per release)
+          $appxFile = $appxFiles[0]
+          Write-Host "Publishing $($appxFile.Name) to Windows Store..."
 
-            while (-not $success -and $retryCount -lt $maxRetries) {
-              try {
-                $retryCount++
+          $retryCount = 0
+          $success = $false
 
-                if ($retryCount -gt 1) {
-                  Write-Host "Retry attempt $retryCount of $maxRetries..."
-                  Start-Sleep -Seconds $retryDelay
-                }
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              $retryCount++
 
-                # Use Windows Store API to upload the app package
-                # This is a placeholder for the actual API call implementation
-                # You'll need to implement the specific Windows Store API calls here
-
-                Write-Host "Uploading $($appxFile.Name) to Windows Store..."
-                # TODO: Implement actual Windows Store API upload
-                # Example using REST API:
-                # $authToken = Get-StoreAuthToken -TenantId $env:STORE_TENANT_ID -ClientId $env:STORE_CLIENT_ID -ClientSecret $env:STORE_CLIENT_SECRET
-                # $submission = New-StoreSubmission -AppId $env:STORE_APP_ID -AuthToken $authToken -AppxPath $appxFile.FullName
-                # $result = Submit-StoreSubmission -AppId $env:STORE_APP_ID -SubmissionId $submission.id -AuthToken $authToken
-
-                Write-Host "Successfully uploaded and submitted $($appxFile.Name)"
-                Write-Host "Submission ID: SUBMISSION_ID_PLACEHOLDER"
-                Write-Host "Store URL: https://partner.microsoft.com/dashboard/apps/$($env:STORE_APP_ID)"
-
-                $success = $true
+              if ($retryCount -gt 1) {
+                Write-Host "Retry attempt $retryCount of $maxRetries..."
+                Start-Sleep -Seconds $retryDelay
               }
-              catch {
-                Write-Error "Upload failed (attempt $retryCount): $_"
-                if ($retryCount -ge $maxRetries) {
-                  Write-Error "Max retries reached. Upload failed for $($appxFile.Name)"
-                  throw $_
-                }
+
+              # Publish using msstore CLI
+              # The --inputFile parameter specifies the .appx file to publish
+              msstore publish "." `
+                --inputFile "$($appxFile.FullName)" `
+                --appId "${{ secrets.WINDOWS_STORE_APP_ID }}"
+
+              Write-Host "Successfully published $($appxFile.Name) to Windows Store"
+              Write-Host "App ID: ${{ secrets.WINDOWS_STORE_APP_ID }}"
+              Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/${{ secrets.WINDOWS_STORE_APP_ID }}"
+
+              $success = $true
+            }
+            catch {
+              Write-Error "Publish failed (attempt $retryCount): $_"
+              if ($retryCount -ge $maxRetries) {
+                Write-Error "Max retries reached. Publish failed for $($appxFile.Name)"
+                exit 1
               }
             }
           }

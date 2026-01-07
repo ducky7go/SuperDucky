@@ -27,7 +27,7 @@ Missing required GitHub Secrets: WINDOWS_STORE_TENANT_ID, WINDOWS_STORE_CLIENT_S
 
 **解决步骤**:
 1. 检查 GitHub Repository Settings > Secrets and variables > Actions
-2. 确认所有四个 required secrets 都已配置
+2. 确认所有五个 required secrets 都已配置
 3. 验证 Secret 名称完全匹配（区分大小写）
 4. 重新添加缺失的 Secret
 
@@ -38,6 +38,7 @@ $requiredSecrets = @(
   'WINDOWS_STORE_TENANT_ID',
   'WINDOWS_STORE_CLIENT_ID',
   'WINDOWS_STORE_CLIENT_SECRET',
+  'WINDOWS_STORE_SELLER_ID',
   'WINDOWS_STORE_APP_ID'
 )
 ```

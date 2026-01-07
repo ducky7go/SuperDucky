@@ -48,19 +48,25 @@ Client ID 格式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 Client Secret 格式: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-#### 1.4 获取应用 ID (App ID)
+#### 1.4 获取应用 ID (App ID) 和 Seller ID
 
 1. 登录 [Partner Center](https://partner.microsoft.com/dashboard)
 2. 导航到 "Apps" 或 "应用"
 3. 选择你的应用
 4. 在 "App identity" 或 "应用标识" 部分，复制 "App ID"
+5. 在 Partner Center 右上角点击账户图标（齿轮设置），查看 "Account settings" 或"账户设置"
+6. 在 "Developer info" 或"开发者信息"部分，复制 "Seller ID"
 
 ```
 App ID 格式: 9NXXXXXXXXX
+Seller ID 格式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 #### 1.5 配置 API 权限
 
+**注意**: 使用 Microsoft Store Developer CLI 时，不需要配置此步骤。CLI 会自动处理所需的权限。
+
+**如果使用 Windows Store Submission API**（不使用 CLI）：
 1. 回到 Azure Portal 的应用注册页面
 2. 点击左侧菜单的 "API permissions"
 3. 点击 "Add a permission"
@@ -76,16 +82,17 @@ App ID 格式: 9NXXXXXXXXX
 1. 打开你的 GitHub Repository
 2. 导航到 `Settings` > `Secrets and variables` > `Actions`
 3. 点击 "New repository secret"
-4. 添加以下四个 secret:
+4. 添加以下五个 secret:
 
 | Secret 名称 | 值 | 说明 |
 |------------|-----|------|
 | `WINDOWS_STORE_TENANT_ID` | Azure Tenant ID | 从 Azure Portal 复制 |
 | `WINDOWS_STORE_CLIENT_ID` | Azure Application (Client) ID | 从 Azure Portal 复制 |
 | `WINDOWS_STORE_CLIENT_SECRET` | Azure Client Secret Value | 从 Azure Portal 复制（仅在创建时可见） |
-| `WINDOWS_STORE_APP_ID` | Windows Store App ID | 从 Partner Center 复制 |
+| `WINDOWS_STORE_SELLER_ID` | Partner Center Seller ID | 从 Partner Center 账户设置中复制 |
+| `WINDOWS_STORE_APP_ID` | Windows Store App ID | 从 Partner Center 应用页面复制 |
 
-5. 重复步骤 3-4，直到所有四个 secret 都已添加
+5. 重复步骤 3-4，直到所有五个 secret 都已添加
 
 ### 第三步：验证配置
 
