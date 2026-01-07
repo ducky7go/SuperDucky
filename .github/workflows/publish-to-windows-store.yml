@@ -253,7 +253,7 @@ jobs:
                 $submissionStatus = $statusResponse.status
                 $statusMessage = if ($statusResponse.statusDetails) { $statusResponse.statusDetails } else { $submissionStatus }
 
-                Write-Host "Poll $pollCount: Status = $submissionStatus - $statusMessage"
+                Write-Host "Poll ${pollCount}: Status = ${submissionStatus} - ${statusMessage}"
 
                 if ($submissionStatus -eq "CommitSuccessful" -or $submissionStatus -eq "Published") {
                   Write-Host "Submission completed successfully!"
