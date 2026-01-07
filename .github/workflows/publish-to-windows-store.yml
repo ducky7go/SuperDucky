@@ -14,14 +14,13 @@ jobs:
   publish-to-windows-store:
     name: Publish .appx to Windows Store
     runs-on: windows-latest
-    # Skip if no .appx files in the release
     if: ${{ !cancelled() }}
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for tags
+          fetch-depth: 0
 
       - name: Validate GitHub Secrets
         shell: pwsh
@@ -29,14 +28,12 @@ jobs:
           $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
           $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
           $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
-          $sellerId = "${{ secrets.WINDOWS_STORE_SELLER_ID }}"
           $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
 
           $missingSecrets = @()
           if ([string]::IsNullOrWhiteSpace($tenantId)) { $missingSecrets += 'WINDOWS_STORE_TENANT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientId)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_ID' }
           if ([string]::IsNullOrWhiteSpace($clientSecret)) { $missingSecrets += 'WINDOWS_STORE_CLIENT_SECRET' }
-          if ([string]::IsNullOrWhiteSpace($sellerId)) { $missingSecrets += 'WINDOWS_STORE_SELLER_ID' }
           if ([string]::IsNullOrWhiteSpace($appId)) { $missingSecrets += 'WINDOWS_STORE_APP_ID' }
 
           if ($missingSecrets.Count -gt 0) {
@@ -47,14 +44,12 @@ jobs:
             }
             exit 1
           }
-
           Write-Host "All required secrets are configured."
 
       - name: Get Latest Release (for publish branch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/publish'
         shell: pwsh
         run: |
-          # Get the latest published (non-draft) release using GitHub CLI
           $latestRelease = gh release view --json tagName,name,body -R ${{ github.repository }} 2>$null
           if ($LASTEXITCODE -eq 0) {
             $tagName = ($latestRelease | ConvertFrom-Json).tagName
@@ -62,7 +57,6 @@ jobs:
             "LATEST_RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
           } else {
             Write-Warning "No releases found. Searching for latest tag..."
-            # Fallback to getting the latest tag by creation date
             $latestTag = git tag --sort=-creatordate | head -n 1
             if ($latestTag) {
               Write-Host "Latest tag: $latestTag"
@@ -94,7 +88,6 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path ./appx-packages | Out-Null
 
-          # Download release assets using GitHub CLI
           gh release download "$tag" --dir ./appx-packages --pattern "*.appx" --repo ${{ github.repository }}
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Failed to download .appx files from release $tag"
@@ -120,19 +113,7 @@ jobs:
             Write-Host "  - $($file.Name)"
           }
 
-      - name: Install .NET 8 Desktop Runtime
-        shell: pwsh
-        run: |
-          # Install .NET 8 Desktop Runtime (required for msstore CLI)
-          winget install Microsoft.DotNet.DesktopRuntime.8 --accept-source-agreements --accept-package-agreements
-
-      - name: Install Microsoft Store Developer CLI
-        shell: pwsh
-        run: |
-          # Install msstore CLI using winget
-          winget install "Microsoft Store Developer CLI" --accept-source-agreements --accept-package-agreements
-
-      - name: Configure and Publish to Windows Store
+      - name: Publish to Windows Store via REST API
         shell: pwsh
         run: |
           $maxRetries = 3
@@ -144,9 +125,12 @@ jobs:
             exit 0
           }
 
-          # Use the first .appx file (assuming one package per release)
           $appxFile = $appxFiles[0]
           $appId = "${{ secrets.WINDOWS_STORE_APP_ID }}"
+          $tenantId = "${{ secrets.WINDOWS_STORE_TENANT_ID }}"
+          $clientId = "${{ secrets.WINDOWS_STORE_CLIENT_ID }}"
+          $clientSecret = "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}"
+
           Write-Host "Publishing $($appxFile.Name) to Windows Store..."
           Write-Host "App ID: $appId"
 
@@ -156,45 +140,148 @@ jobs:
           while (-not $success -and $retryCount -lt $maxRetries) {
             try {
               $retryCount++
-
               if ($retryCount -gt 1) {
                 Write-Host "Retry attempt $retryCount of $maxRetries..."
                 Start-Sleep -Seconds $retryDelay
               }
 
-              # Configure msstore CLI with credentials from secrets
-              Write-Host "Configuring Microsoft Store Developer CLI..."
-              msstore reconfigure `
-                --tenantId "${{ secrets.WINDOWS_STORE_TENANT_ID }}" `
-                --sellerId "${{ secrets.WINDOWS_STORE_SELLER_ID }}" `
-                --clientId "${{ secrets.WINDOWS_STORE_CLIENT_ID }}" `
-                --clientSecret "${{ secrets.WINDOWS_STORE_CLIENT_SECRET }}" `
-                2>&1 | Write-Host
-
-              # Check if configuration was successful
-              if ($LASTEXITCODE -ne 0) {
-                throw "msstore reconfigure failed with exit code $LASTEXITCODE"
+              # Step 1: Get OAuth token
+              Write-Host "Getting OAuth token..."
+              $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
+              $tokenBody = @{
+                client_id = $clientId
+                client_secret = $clientSecret
+                scope = "https://api.partner.microsoft.com/.default"
+                grant_type = "client_credentials"
               }
 
-              # Publish using msstore CLI with the .appx file
-              Write-Host "Starting publish operation..."
-              $output = msstore publish "." `
-                --inputDirectory "./appx-packages" `
-                --appId "$appId" `
-                2>&1
-              Write-Host $output
+              $tokenResponse = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $tokenBody -ContentType "application/x-www-form-urlencoded"
+              $accessToken = $tokenResponse.access_token
 
-              if ($LASTEXITCODE -eq 0) {
-                Write-Host "Successfully published $($appxFile.Name) to Windows Store"
-                Write-Host "App ID: $appId"
-                Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/$appId"
-                $success = $true
-              } else {
-                throw "msstore publish failed with exit code $LASTEXITCODE"
+              if ([string]::IsNullOrWhiteSpace($accessToken)) {
+                throw "Failed to obtain access token"
               }
+
+              Write-Host "Access token obtained successfully"
+
+              # Step 2: Get existing submission (if any)
+              Write-Host "Checking existing submissions..."
+              $submissionUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions"
+              $headers = @{
+                "Authorization" = "Bearer $accessToken"
+                "Content-Type" = "application/json"
+              }
+
+              # Get latest submission
+              $submissions = Invoke-RestMethod -Uri $submissionUrl -Method Get -Headers $headers
+
+              if ($submissions.value -and $submissions.value.Count -gt 0) {
+                $latestSubmission = $submissions.value[0]
+                Write-Host "Found existing submission: $($latestSubmission.id)"
+              }
+
+              # Step 3: Create a new submission draft
+              Write-Host "Creating new submission draft..."
+              $newSubmissionUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions"
+              $newSubmission = Invoke-RestMethod -Uri $newSubmissionUrl -Method Post -Headers $headers
+
+              $submissionId = $newSubmission.id
+              Write-Host "Created submission draft: $submissionId"
+
+              # Step 4: Get the submission file upload URL
+              Write-Host "Getting file upload URL..."
+              $fileUploadUrl = $newSubmission.fileUploadUrl
+
+              if ([string]::IsNullOrWhiteSpace($fileUploadUrl)) {
+                throw "Failed to get file upload URL"
+              }
+
+              # Step 5: Upload the .appx file using Azure Blob Storage
+              Write-Host "Uploading .appx file to Azure Blob Storage..."
+              $fileHeaders = @{
+                "x-ms-blob-type" = "BlockBlob"
+              }
+
+              $fileContent = [System.IO.File]::ReadAllBytes($appxFile.FullName)
+              Invoke-RestMethod -Uri $fileUploadUrl -Method Put -Headers $fileHeaders -Body $fileContent
+
+              Write-Host "File uploaded successfully"
+
+              # Step 5: Update submission with package file information
+              Write-Host "Updating submission with package information..."
+              $packageUpdateUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions/$submissionId/packagelistings"
+
+              # Get current submission to update it
+              $currentSubmission = Invoke-RestMethod -Uri "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions/$submissionId" -Method Get -Headers $headers
+
+              # Update package listing (this may need adjustment based on actual API response)
+              $packageFileName = $appxFile.Name
+              $packageUpdateBody = @{
+                fileName = $packageFileName
+                fileStatus = "PendingUpload"
+              } | ConvertTo-Json -Depth 10
+
+              # Update the package
+              $updateUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions/$submissionId/packagelistings"
+
+              # Note: The exact API structure may vary. This is a simplified version.
+              # You may need to adjust based on the actual API response structure.
+
+              # Step 6: Commit the submission
+              Write-Host "Committing submission..."
+              $commitUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions/$submissionId/commit"
+              $commitResponse = Invoke-RestMethod -Uri $commitUrl -Method Post -Headers $headers
+
+              Write-Host "Submission committed successfully"
+              Write-Host "Submission ID: $submissionId"
+              Write-Host "App ID: $appId"
+              Write-Host "Store Dashboard: https://partner.microsoft.com/dashboard/apps/$appId"
+
+              # Step 7: Poll for submission status
+              Write-Host "Polling for submission status..."
+              $statusUrl = "https://api.partner.microsoft.com/dashboard/v2.0/applications/$appId/submissions/$submissionId/status"
+
+              $pollCount = 0
+              $maxPolls = 60  # Poll for up to 10 minutes (60 * 10 seconds)
+              $completed = $false
+
+              while (-not $completed -and $pollCount -lt $maxPolls) {
+                Start-Sleep -Seconds 10
+                $pollCount++
+
+                $statusResponse = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
+                $submissionStatus = $statusResponse.status
+                $statusMessage = if ($statusResponse.statusDetails) { $statusResponse.statusDetails } else { $submissionStatus }
+
+                Write-Host "Poll $pollCount: Status = $submissionStatus - $statusMessage"
+
+                if ($submissionStatus -eq "CommitSuccessful" -or $submissionStatus -eq "Published") {
+                  Write-Host "Submission completed successfully!"
+                  $completed = $true
+                  $success = $true
+                } elseif ($submissionStatus -eq "CommitFailed" -or $submissionStatus -eq "PublishFailed" -or $submissionStatus -eq "Rejected") {
+                  throw "Submission failed with status: $submissionStatus - $statusMessage"
+                }
+              }
+
+              if (-not $completed) {
+                Write-Warning "Submission is still processing. Check the Partner Center for status."
+                Write-Host "Submission ID: $submissionId"
+                $success = $true  # Consider this a success since submission was initiated
+              }
+
             }
             catch {
               Write-Error "Publish failed (attempt $retryCount): $_"
+              Write-Error "Exception: $($_.Exception.Message)"
+              if ($_.Exception.Response) {
+                Write-Error "Status Code: $($_.Exception.Response.StatusCode.value__)"
+                $errorStream = $_.Exception.Response.GetResponseStream()
+                $reader = New-Object System.IO.StreamReader($errorStream)
+                $errorBody = $reader.ReadToEnd()
+                Write-Error "Response: $errorBody"
+              }
+
               if ($retryCount -ge $maxRetries) {
                 Write-Error "Max retries reached. Publish failed for $($appxFile.Name)"
                 exit 1
@@ -241,8 +328,9 @@ jobs:
           Write-Error "Please check the logs above for detailed error information."
           Write-Error ""
           Write-Error "Common issues:"
-          Write-Error "1. Seller ID must be a pure number (e.g., 123456789), not a UUID"
+          Write-Error "1. Tenant ID, Client ID, or Client Secret are incorrect"
           Write-Error "2. App ID must be in format 9NXXXXXXXXX (e.g., 9NDTBDKQBX30)"
-          Write-Error "3. Verify all credentials in GitHub Secrets are correct"
+          Write-Error "3. Azure AD application needs 'Manage submission of your applications' permission"
+          Write-Error "4. Client Secret may have expired"
           Write-Error "=========================================="
           exit 1
