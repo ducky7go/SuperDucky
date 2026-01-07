@@ -27,7 +27,7 @@ Missing required GitHub Secrets: WINDOWS_STORE_TENANT_ID, WINDOWS_STORE_CLIENT_S
 
 **解决步骤**:
 1. 检查 GitHub Repository Settings > Secrets and variables > Actions
-2. 确认所有五个 required secrets 都已配置
+2. 确认所有四个 required secrets 都已配置
 3. 验证 Secret 名称完全匹配（区分大小写）
 4. 重新添加缺失的 Secret
 
@@ -38,7 +38,6 @@ $requiredSecrets = @(
   'WINDOWS_STORE_TENANT_ID',
   'WINDOWS_STORE_CLIENT_ID',
   'WINDOWS_STORE_CLIENT_SECRET',
-  'WINDOWS_STORE_SELLER_ID',
   'WINDOWS_STORE_APP_ID'
 )
 ```
@@ -66,48 +65,27 @@ Authentication failed: 401 Unauthorized
    - 确认从 Azure Portal 复制的 ID 完全正确
    - 检查是否有额外的空格或换行符
 
-3. **验证 API 权限**:
-   - 确认已添加 "Windows Store submission API" 权限
-   - 确认已点击 "Grant admin consent"
+### 3. API Limitation Notice (Expected Behavior)
 
-4. **重新授予权限**:
-   - 在 API permissions 页面
-   - 删除现有权限
-   - 重新添加权限
-   - 点击 "Grant admin consent for [your organization]"
-
-### 3. Upload failed with retry
-
-**错误示例**:
+**日志示例**:
 ```
-Upload failed (attempt 1): The remote server returned an error: (503) Server Unavailable.
-Upload failed (attempt 2): ...
-Upload failed (attempt 3): Max retries reached. Upload failed for MyApp.appx
+===============================================
+IMPORTANT: Windows Store Submission API Limitation
+===============================================
+
+The Windows Store Submission API for MSI/EXE apps requires
+a publicly accessible package URL (packageUrl parameter).
 ```
 
-**可能原因**:
-- Windows Store API 服务暂时不可用
-- 网络连接问题
-- API 请求速率限制
-- `.appx` 文件格式问题
+**说明**:
+- 这是预期行为，不是错误
+- Windows Store Submission API (MSI/EXE) 需要一个公开可访问的包 URL
+- 工作流无法直接上传本地 .appx 文件
 
 **解决步骤**:
-1. **验证服务状态**:
-   - 访问 [Partner Center Status](https://status.partner.microsoft.com/)
-   - 检查是否有服务中断
-
-2. **验证 .appx 文件**:
-   - 确认文件可以正常安装
-   - 检查文件大小（是否超过 Windows Store 限制）
-   - 验证应用包版本号是否高于当前 Store 版本
-
-3. **重试工作流**:
-   - 等待几分钟后重新运行工作流
-   - 在 GitHub Actions 中手动触发重试
-
-4. **检查 API 限制**:
-   - Windows Store API 可能有速率限制
-   - 减少频繁的发布尝试
+- 按照工作流输出的指导，在 Partner Center 中手动完成提交
+- 参考 [Windows Store 自动发布配置指南](windows-store-auto-publish.md) 中的 "重要说明：当前实现状态" 部分
+- 考虑实现文档中提到的未来改进方案（Azure Blob Storage 或转换为 MSIX 格式）
 
 ### 4. App not found (404 Not Found)
 
@@ -210,57 +188,37 @@ No releases or tags found. Cannot publish to Windows Store.
    - 确保至少有一个 Release 或 Tag 存在
    - 确认该 Release/Tag 包含 `.appx` 文件
 
-### 8. Seller ID format error (FormatException)
-
-**错误示例**:
-```
-System.FormatException: The input string '***' was not in a correct format.
-   at System.Number.ThrowFormatException[TChar](ReadOnlySpan`1 value)
-   at MSStore.CLI.Services.CLIConfigurator.RetrieveSellerId(...)
-```
-
-**可能原因**:
-- Seller ID 格式不正确
-- msstore CLI 期望 Seller ID 是纯数字格式
-- 你可能使用了 UUID 格式的 ID
-
-**解决步骤**:
-1. **验证 Seller ID 格式**:
-   - Seller ID 必须是纯数字（例如: `123456789`）
-   - ❌ 错误: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
-   - ✅ 正确: `123456789`
-
-2. **重新获取 Seller ID**:
-   - 登录 [Partner Center](https://partner.microsoft.com/dashboard)
-   - 点击右上角账户图标 > "Account settings"
-   - 查找 "Seller ID" 字段
-   - 确保复制的是 **十进制数字**，不是 UUID
-
-3. **更新 GitHub Secret**:
-   - 在 GitHub Repository Settings 中更新 `WINDOWS_STORE_SELLER_ID`
-   - 使用正确的纯数字格式
-
 ## 日志分析
 
-### 成功发布的日志特征
+### 工作流成功运行的日志特征
 
 ```
 ✅ Validate GitHub Secrets - All required secrets are configured.
 ✅ Get Latest Release (for publish branch) - Latest release tag: v1.0.0
-✅ Download Release Assets - Found 1 .appx file(s): MyApp_1.0.0.0_x64.appx
-✅ Authenticate to Windows Store API - Windows Store API credentials configured
-✅ Upload and Submit to Windows Store - Successfully uploaded and submitted
-✅ Report Success - Windows Store Publishing Successful!
-   Triggered by: Release creation / Push to publish branch
+✅ Download Release Assets - Downloaded 1 .appx file(s)
+✅ Check for .appx Files - Found 1 .appx file(s): MyApp_1.0.0.0_x64.appx
+✅ Publish to Windows Store via REST API - Getting OAuth token...
+   - Access token obtained successfully
+   - Current packages retrieved successfully
+   - Application is ready for submission
+   - IMPORTANT: Windows Store Submission API Limitation
+   (provides guidance for manual completion)
+✅ Report Success - Windows Store Publishing - Guidance
 ```
 
-### 失败发布的日志特征
+**注意**: 由于 API 限制，"成功"并不意味着完全自动提交。成功的工作流会：
+1. 验证配置
+2. 下载 .appx 文件
+3. 认证到 Windows Store API
+4. 检查应用状态
+5. 提供手动完成提交的指导
+
+### 工作流失败的日志特征
 
 ```
 ❌ Validate GitHub Secrets - Missing required GitHub Secrets: ...
 ❌ Get Latest Release - No releases or tags found
 ❌ Authenticate to Windows Store API - Authentication failed: 401 Unauthorized
-❌ Upload and Submit to Windows Store - Upload failed with retry
 ❌ Report Failure - Windows Store Publishing Failed!
 ```
 
@@ -268,16 +226,16 @@ System.FormatException: The input string '***' was not in a correct format.
 
 使用此清单快速诊断问题：
 
-- [ ] GitHub Secrets 全部配置且名称正确
+- [ ] GitHub Secrets 全部配置且名称正确（4个 secrets）
 - [ ] Azure AD 应用注册存在且配置正确
 - [ ] Client Secret 未过期
-- [ ] API 权限已授予
 - [ ] App ID 正确且应用存在于 Partner Center
 - [ ] `.appx` 文件存在于 Release 中
 - [ ] `.appx` 文件格式有效且可以安装
 - [ ] 应用版本号高于当前 Store 版本
 - [ ] Partner Center 服务正常运行
 - [ ] 网络连接正常
+- [ ] 理解当前实现的 API 限制（需要手动完成提交）
 
 ## 获取帮助
 

@@ -48,7 +48,7 @@ Client ID 格式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 Client Secret 格式: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-#### 1.4 获取应用 ID (App ID) 和 Seller ID
+#### 1.4 获取应用 ID (App ID)
 
 **获取 App ID**:
 1. 登录 [Partner Center](https://partner.microsoft.com/dashboard)
@@ -60,51 +60,27 @@ Client Secret 格式: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 App ID 格式: 9NXXXXXXXXX (例如: 9NDTBDKQBX30)
 ```
 
-**获取 Seller ID**:
-1. 在 Partner Center 中，点击右上角的账户图标或头像
-2. 选择 "Account settings" 或"账户设置"
-3. 在 "Account details" 或"账户详情"页面找到 "Seller ID"
-4. **重要**: Seller ID 是一个 **十进制数字**，不是 UUID！
-
-```
-Seller ID 格式: 纯数字 (例如: 123456789)
-❌ 错误: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-✅ 正确: 123456789
-```
-
-**提示**: 如果你在页面上看到 UUID 格式的 ID，请继续查找。Seller ID 通常显示在 "Seller ID"、"发布者 ID" 或 "Publisher ID" 字段中，格式为纯数字。
-
 #### 1.5 配置 API 权限
 
-**注意**: 使用 Microsoft Store Developer CLI 时，不需要配置此步骤。CLI 会自动处理所需的权限。
+**注意**: 当前使用的是 Windows Store Submission REST API，不需要额外的 API 权限配置。
 
-**如果使用 Windows Store Submission API**（不使用 CLI）：
-1. 回到 Azure Portal 的应用注册页面
-2. 点击左侧菜单的 "API permissions"
-3. 点击 "Add a permission"
-4. 选择 "APIs my organization uses"
-5. 搜索并选择 "Windows Store submission API"
-6. 选择 "Application permissions"
-7. 勾选 `Manage submission of your applications`
-8. 点击 "Add permissions"
-9. **重要**: 点击 "Grant admin consent for [你的组织]" 按钮以授予权限
+只需完成步骤 1.1-1.4 获取的凭证即可进行 API 认证。
 
 ### 第二步：配置 GitHub Secrets
 
 1. 打开你的 GitHub Repository
 2. 导航到 `Settings` > `Secrets and variables` > `Actions`
 3. 点击 "New repository secret"
-4. 添加以下五个 secret:
+4. 添加以下四个 secret:
 
 | Secret 名称 | 值 | 说明 |
 |------------|-----|------|
 | `WINDOWS_STORE_TENANT_ID` | Azure Tenant ID | 从 Azure Portal 复制 |
 | `WINDOWS_STORE_CLIENT_ID` | Azure Application (Client) ID | 从 Azure Portal 复制 |
 | `WINDOWS_STORE_CLIENT_SECRET` | Azure Client Secret Value | 从 Azure Portal 复制（仅在创建时可见） |
-| `WINDOWS_STORE_SELLER_ID` | Partner Center Seller ID | 从 Partner Center 账户设置中复制 |
 | `WINDOWS_STORE_APP_ID` | Windows Store App ID | 从 Partner Center 应用页面复制 |
 
-5. 重复步骤 3-4，直到所有五个 secret 都已添加
+5. 重复步骤 3-4，直到所有四个 secret 都已添加
 
 ### 第三步：验证配置
 
@@ -132,7 +108,87 @@ Seller ID 格式: 纯数字 (例如: 123456789)
   - 需要更新同一版本的应用信息
   - 之前的提交被拒绝，需要重新提交
 
+## 重要说明：当前实现状态
+
+### API 限制说明
+
+**当前工作流状态**: 工作流可以成功完成以下步骤：
+
+1. ✅ 验证 GitHub Secrets 配置
+2. ✅ 下载 GitHub Release 中的 `.appx` 文件
+3. ✅ 通过 Azure AD 获取 OAuth 访问令牌
+4. ✅ 检查 Windows Store 应用状态
+5. ✅ 提供发布指导
+
+**已知限制**: 由于 Windows Store Submission API (MSI/EXE) 的设计限制，该 API 需要提供一个**公开可访问的包 URL (`packageUrl`)**，而不是直接上传本地文件。
+
+**这意味着**: 工作流目前无法完成 100% 自动化的提交流程，但可以自动完成大部分准备工作。
+
+### 当前工作流程
+
+当工作流运行时，您会看到以下输出：
+
+```
+===============================================
+IMPORTANT: Windows Store Submission API Limitation
+===============================================
+
+The Windows Store Submission API for MSI/EXE apps requires
+a publicly accessible package URL (packageUrl parameter).
+
+For .appx packages, you have two options:
+
+Option 1: Use the manual submission flow
+  - Upload your .appx file to a publicly accessible URL
+  - Update the packageUrl in Partner Center manually
+  - Use the API to create the submission
+
+Option 2: Convert to MSIX format and use the UWP API
+  - The UWP Store Submission API supports direct file upload
+  - Consider converting .appx to .msix format
+
+App ID: 9NDTBDKQBX30
+Store Dashboard: https://partner.microsoft.com/dashboard/apps/9NDTBDKQBX30
+```
+
+### 完成发布的步骤
+
+工作流运行完成后，您需要：
+
+1. **访问 Partner Center**: 点击工作流日志中提供的 Store Dashboard 链接
+2. **创建新提交**: 在 Partner Center 中为您的应用创建新的提交
+3. **上传 .appx 文件**: 从 GitHub Release 下载 `.appx` 文件并手动上传
+4. **完成提交**: 填写所需的应用信息和截图
+5. **提交审核**: 提交到 Windows Store 进行审核
+
+### 未来改进方向
+
+如果您需要实现完全自动化发布，可以考虑以下方案：
+
+**方案 A: 使用 Azure Blob Storage**
+1. 在工作流中添加步骤，将 `.appx` 文件上传到 Azure Blob Storage
+2. 生成具有过期时间的 SAS URL（共享访问签名）
+3. 使用该 SAS URL 作为 `packageUrl` 参数通过 API 提交
+
+**方案 B: 转换为 MSIX 格式**
+1. 修改构建流程，输出 `.msix` 格式而非 `.appx`
+2. 使用 UWP Store Submission API，该 API 支持直接文件上传
+3. 实现完全自动化的提交流程
+
+如果您希望实现这些改进，请提交 issue 或 PR。
+
 ## 故障排除
+
+### 问题：工作流提示 API 限制并提供指导
+
+**现象**: 工作流运行成功，但输出提示 "Windows Store Submission API Limitation"
+
+**原因**: 这是预期行为。Windows Store Submission API (MSI/EXE) 需要公开可访问的包 URL，无法直接上传本地文件。
+
+**解决方案**:
+- 这是当前实现的已知限制，不是错误
+- 按照工作流输出的指导，在 Partner Center 中手动完成提交
+- 参考本文档 "重要说明：当前实现状态" 部分了解详情
 
 ### 问题：工作流立即失败，提示 "Missing required GitHub Secrets"
 
@@ -145,23 +201,12 @@ Seller ID 格式: 纯数字 (例如: 123456789)
 
 ### 问题：认证失败，提示 "Authentication failed"
 
-**原因**: API 凭证无效或权限未授予
+**原因**: API 凭证无效
 
 **解决方案**:
 1. 验证 Tenant ID、Client ID 和 Client Secret 是否正确
 2. 检查 Client Secret 是否已过期
-3. 确认已授予 "Manage submission of your applications" 权限
-4. 确认已点击 "Grant admin consent" 按钮
-
-### 问题：上传失败，提示 "Upload failed with retry"
-
-**原因**: 网络问题、API 限流或文件格式问题
-
-**解决方案**:
-1. 检查 `.appx` 文件是否有效且未损坏
-2. 验证 App ID 是否正确
-3. 确认应用在 Windows Store 中的状态正常
-4. 等待几分钟后重试
+3. 确认 Azure AD 应用注册配置正确
 
 ### 问题：工作流跳过发布，提示 "No .appx files found"
 

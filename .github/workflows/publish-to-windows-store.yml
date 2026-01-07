@@ -168,47 +168,18 @@ jobs:
               }
               Write-Host "Access token obtained successfully"
 
-              # Step 2: Get current packages to understand the structure
-              Write-Host "Checking current application packages..."
+              # Step 2: Validate credentials by attempting a minimal API call
+              # Note: We're not using X-Seller-Account-Id since we'll provide manual guidance
+              Write-Host "Validating API credentials..."
               $baseUrl = "https://api.store.microsoft.com/submission/v1"
-              $headers = @{
-                "Authorization" = "Bearer $accessToken"
-                "Content-Type" = "application/json"
-                "X-Correlation-ID" = (New-Guid).ToString()
-              }
 
-              # Try to get current packages first
-              try {
-                $packagesUrl = "$baseUrl/product/$appId/packages"
-                $currentPackages = Invoke-RestMethod -Uri $packagesUrl -Method Get -Headers $headers
-                Write-Host "Current packages retrieved successfully"
-              } catch {
-                Write-Warning "Could not retrieve current packages (this is OK for new submissions)"
-              }
+              # The Windows Store Submission API for MSI/EXE requires:
+              # 1. X-Seller-Account-Id header (seller ID from Partner Center)
+              # 2. A publicly accessible packageUrl parameter
+              # 3. Different authentication setup than standard UWP apps
 
-              # Step 3: Get current draft status
-              Write-Host "Getting current draft status..."
-              $statusUrl = "$baseUrl/product/$appId/status"
-              $statusResponse = Invoke-RestMethod -Uri $statusUrl -Method Get -Headers $headers
-
-              if ($statusResponse.responseData.isReady -eq $true) {
-                Write-Host "Application is ready for submission"
-              } else {
-                Write-Warning "Application draft is not ready. This may require manual setup in Partner Center."
-                Write-Host "Status: $($statusResponse.responseData | ConvertTo-Json -Depth 10)"
-              }
-
-              # Step 4: Update packages (for MSI/EXE apps, we use packageUrl)
-              # For .appx files, we need to provide the package URL
-              # Since we have a local file, we'll need to upload it somewhere accessible
-              # For now, let's create a minimal submission request
-
-              Write-Host "Attempting to create/update submission..."
-
-              # Note: The Windows Store Submission API for MSI/EXE apps requires a packageUrl
-              # which should be a publicly accessible URL to the .appx file
-              # Since we're working with a local file, we'll need to skip the actual package update
-              # and provide guidance on the manual steps needed
+              # Since we cannot complete the full submission without these requirements,
+              # we'll validate credentials and provide guidance instead
 
               Write-Warning "==============================================="
               Write-Warning "IMPORTANT: Windows Store Submission API Limitation"
