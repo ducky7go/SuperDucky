@@ -4,7 +4,7 @@
 
 This repo contains only `README.md` and `assets/img/` (16 UI screenshots). The README is a short gallery of the SuperDucky UI, a QQ group link ("逃离鸭科夫 mod 技术交流") and a link to the docs site. There is no source code, build system or CI here.
 
-The application source lives in the sibling repo `ducky7go/DML` (its `client/` directory; product name SuperDucky). Releases are published here: `DML/client/electron-builder.yml` publishes to `ducky7go/SuperDucky`, and the app's default update source is `ducky7go/SuperDucky`. The Releases themselves are not visible in a clone.
+The application source lives in the sibling repo `ducky7go/DML` (at its repository root; product name SuperDucky). Releases are published here: `DML/electron-builder.yml` publishes to `ducky7go/SuperDucky`, and the app's default update source is `ducky7go/SuperDucky`. The Releases themselves are not visible in a clone.
 
 ## Working here
 
